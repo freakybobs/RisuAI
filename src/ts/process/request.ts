@@ -271,6 +271,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     const db = getDatabase()
     const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
     fallBackModels.push('')
+    let da:requestDataResponse
 
     const originalFormated = safeStructuredClone(arg.formated)
     for(let fallbackIndex=0;fallbackIndex<fallBackModels.length;fallbackIndex++){
@@ -282,6 +283,13 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         }
 
         while(true){
+            
+            if(abortSignal?.aborted){
+                return {
+                    type: 'fail',
+                    result: 'Aborted'
+                }
+            }
     
             if(pluginV2.replacerbeforeRequest.size > 0){
                 for(const replacer of pluginV2.replacerbeforeRequest){
@@ -312,10 +320,17 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             }
             
     
-            const da = await requestChatDataMain({
+            da = await requestChatDataMain({
                 ...arg,
                 staticModel: fallBackModels[fallbackIndex]
             }, model, abortSignal)
+
+            if(abortSignal?.aborted){
+                return {
+                    type: 'fail',
+                    result: 'Aborted'
+                }
+            }
     
             if(da.type === 'success' && pluginV2.replacerafterRequest.size > 0){
                 for(const replacer of pluginV2.replacerafterRequest){
@@ -372,7 +387,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     }
 
 
-    return {
+    return da ?? {
         type: 'fail',
         result: "All models failed"
     }
@@ -515,6 +530,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
         targ.modelInfo.internalID = db.customProxyRequestModel
         targ.modelInfo.format = db.customAPIFormat
         targ.customURL = db.forceReplaceUrl
+        targ.key = db.proxyKey
     }
     if(targ.aiModel.startsWith('xcustom:::')){
         const found = db.customModels.find(m => m.id === targ.aiModel)
@@ -1399,7 +1415,8 @@ async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtended):Prom
             "Content-Type": "application/json",
             "Authorization": "Bearer " + (arg.key ?? db.openAIKey)
         },
-        chatId: arg.chatId
+        chatId: arg.chatId,
+        abortSignal: arg.abortSignal
     });
 
     if(!response.ok){
@@ -1550,7 +1567,8 @@ async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):Promise
             "Content-Type": "application/json",
             "Authorization": "Bearer " + (arg.key ?? db.openAIKey),
         },
-        chatId: arg.chatId
+        chatId: arg.chatId,
+        abortSignal: arg.abortSignal
     });
 
     if(!response.ok){
@@ -1667,7 +1685,7 @@ async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDa
             "Authorization": "Bearer " + (arg.key ?? db.novelai.token)
         },
         abortSignal,
-        chatId: arg.chatId
+        chatId: arg.chatId,
     })
 
     if((!da.ok )|| (!da.data.output)){
@@ -1747,11 +1765,11 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
             oobaboogaSocket.onerror = () => resolve(1001)
             oobaboogaSocket.onclose = ({ code }) => resolve(code)
         })
-        if(abortSignal.aborted || statusCode !== 0) {
+        if(abortSignal?.aborted || statusCode !== 0) {
             oobaboogaSocket.close()
             return ({
                 type: "fail",
-                result: abortSignal.reason || `WebSocket connection failed to '${streamUrl}' failed!`,
+                result: abortSignal?.reason || `WebSocket connection failed to '${streamUrl}' failed!`,
             })
         }
 
@@ -1780,7 +1798,7 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
         })
         oobaboogaSocket.onerror = close
         oobaboogaSocket.onclose = close
-        abortSignal.addEventListener("abort", close)
+        abortSignal?.addEventListener("abort", close)
 
         return {
             type: 'streaming',
@@ -1871,7 +1889,8 @@ async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataR
 
     const response = await globalFetch(urlStr, {
         body: bodyTemplate,
-        chatId: arg.chatId
+        chatId: arg.chatId,
+        abortSignal: arg.abortSignal
     })
 
     if(!response.ok){
@@ -2364,6 +2383,7 @@ async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):Promise
             body: JSON.stringify(body),
             method: 'POST',
             chatId: arg.chatId,
+            signal: arg.abortSignal
         })
 
         if(f.status !== 200){
@@ -2666,7 +2686,8 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
         method: 'POST',
         headers: headers,
         body: send_body,
-        chatId: arg.chatId
+        chatId: arg.chatId,
+        abortSignal: arg.abortSignal
     });
 
     if(!response.ok){
@@ -2838,7 +2859,8 @@ async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDat
             "Authorization": "Bearer " + (arg.key ?? db.cohereAPIKey),
             "Content-Type": "application/json"
         },
-        body: body
+        body: body,
+        abortSignal: arg.abortSignal
     })
 
     if(!res.ok){
@@ -2848,7 +2870,7 @@ async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDat
         }
     }
 
-    const result = res.data.text
+    const result = res?.data?.text
     if(!result){
         return {
             type: 'fail',
