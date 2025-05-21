@@ -462,9 +462,6 @@
                             if(DBState.db.sendWithEnter && (!e.shiftKey)){
                                 send()
                                 e.preventDefault()
-                            }else if(!DBState.db.sendWithEnter && e.shiftKey){
-                                send()
-                                e.preventDefault()
                             }
                         }
                         if(e.key.toLocaleLowerCase() === "m" && (e.ctrlKey)){
